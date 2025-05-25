@@ -1,7 +1,9 @@
 from flask import Flask, request, jsonify
+from flask_cors import CORS
 import joblib
 
 app = Flask(__name__)
+CORS(app)
 
 # 嘗試載入模型與向量器
 try:
