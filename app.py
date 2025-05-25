@@ -19,6 +19,7 @@ def predict():
             return jsonify({'error': '模型未正確載入'}), 500
 
         data = request.json or {}
+        print("📩 收到資料：", data)
         text = data.get('text', '').strip()
         if not text:
             return jsonify({'error': '請提供 text 欄位'}), 400
@@ -34,4 +35,3 @@ def predict():
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
 
-print("📩 收到資料：", data)
