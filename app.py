@@ -132,7 +132,11 @@ def analyze_all():
                     }
                 )
 
-                result = ocr_response.json()
+                try:
+                    result = ocr_response.json()
+                except Exception as e:
+                    print("❌ OCR API 回傳格式錯誤：", ocr_response.text)
+                    return jsonify({'error': 'OCR_API_ERROR', 'details': ocr_response.text}), 500
                 if not result['IsErroredOnProcessing']:
                     image_text = result['ParsedResults'][0]['ParsedText'].strip()
                     used_image_text = image_text
