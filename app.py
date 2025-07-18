@@ -5,12 +5,14 @@ import requests
 import os
 from dotenv import load_dotenv
 
+# 載入 .env 變數
 load_dotenv()
 OCR_API_KEY = os.environ.get("OCR_API_KEY")
 
 app = Flask(__name__)
 CORS(app)
 
+# 載入模型與向量器
 try:
     model = joblib.load('spam_detector_model.pkl')
     vectorizer = joblib.load('vectorizer.pkl')
@@ -19,6 +21,7 @@ except Exception as e:
     model = None
     vectorizer = None
 
+# 文字預測 API
 @app.route('/predict', methods=['POST'])
 def predict():
     try:
@@ -35,6 +38,7 @@ def predict():
         print(f"❌ 預測錯誤：{e}")
         return jsonify({'error': str(e)}), 500
 
+# 圖片 OCR + 預測 API（使用 OCR.space）
 @app.route('/predict-image', methods=['POST'])
 def predict_image():
     try:
@@ -66,74 +70,78 @@ def predict_image():
             })
         else:
             return jsonify({'error': 'OCR API 處理錯誤'}), 500
-
     except Exception as e:
         print(f"❌ 圖片處理錯誤：{e}")
         return jsonify({'error': str(e)}), 500
-
-# 以下為 analyze_all 函式的佔位符，您需要根據實際邏輯來實現 predict_text_helper, predict_image_helper, 和 fuse_prediction_helper 函式。
-# 通常不會直接從一個路由函式呼叫另一個路由函式來獲取結果。
-# 建議將核心邏輯提取為輔助函式，然後在路由和 analyze_all 中呼叫這些輔助函式。
-
-def predict_text_helper(text_input):
-    # 請在此處實現文字預測的核心邏輯，例如：
-    if not text_input:
-        return {"label": "無文字", "confidence": 0.0}
-    vec = vectorizer.transform([text_input])
-    pred = model.predict(vec)[0]
-    return {"label": "spam" if pred == 1 else "ham", "confidence": 0.0} # 請填寫實際的信心度
-
-def predict_image_helper(image_file_input):
-    # 請在此處實現圖片預測的核心邏輯，例如：
-    ocr_response = requests.post(
-        'https://api.ocr.space/parse/image',
-        files={'filename': image_file_input},
-        data={
-            'apikey': OCR_API_KEY,
-            'language': 'cht'
-        }
-    )
-    result = ocr_response.json()
-    if not result['IsErroredOnProcessing']:
-        text = result['ParsedResults'][0]['ParsedText']
-        if not text.strip():
-            return {"label": "圖片無文字", "confidence": 0.0}
-        vec = vectorizer.transform([text])
-        pred = model.predict(vec)[0]
-        return {"label": "spam" if pred == 1 else "ham", "text": text.strip(), "confidence": 0.0} # 請填寫實際的信心度
-    else:
-        return {"label": "OCR錯誤", "confidence": 0.0, "error": result.get('ErrorMessage', '未知OCR錯誤')}
-
-def fuse_prediction_helper(text_res, image_res):
-    # 請在此處實現文字和圖片預測結果的融合邏輯
-    # 這裡只是一個示例，您可以根據您的融合策略修改
-    if text_res.get("label") == "spam" or image_res.get("label") == "spam":
-        return {"label": "spam", "final_confidence": max(text_res.get("confidence", 0), image_res.get("confidence", 0))}
-    return {"label": "ham", "final_confidence": 0.0}
-
-@app.route("/analyze-all", methods=["POST"])
+@app.route('/analyze-all', methods=['POST'])
 def analyze_all():
     try:
-        text = request.form.get("text")
-        image = request.files.get("image")
+        text_score = 0
+        image_score = 0
+        used_text = ''
+        used_image_text = ''
+        text_label = None
+        image_label = None
 
-        text_result = {"label": "正常", "confidence": 0.0}
-        image_result = {"label": "正常", "confidence": 0.0}
+        # 處理文字部分
+        if 'text' in request.form and request.form['text'].strip():
+            text = request.form['text'].strip()
+            used_text = text
+            vec = vectorizer.transform([text])
+            proba = model.predict_proba(vec)[0]  # [ham, spam]
+            spam_conf = proba[1]
+            text_label = 'spam' if spam_conf > 0.5 else 'ham'
 
-        if text:
-            text_result = predict_text_helper(text)
-        if image:
-            image_result = predict_image_helper(image)
+            if spam_conf > 0.75:
+                text_score = 1.0
+            elif spam_conf > 0.5:
+                text_score = 0.5
 
-        final_result = fuse_prediction_helper(text_result, image_result)
+        # 處理圖片部分
+        if 'image' in request.files:
+            image_file = request.files['image']
+            ocr_response = requests.post(
+                'https://api.ocr.space/parse/image',
+                files={'filename': image_file},
+                data={
+                    'apikey': OCR_API_KEY,
+                    'language': 'cht'
+                }
+            )
+
+            result = ocr_response.json()
+            if not result['IsErroredOnProcessing']:
+                image_text = result['ParsedResults'][0]['ParsedText'].strip()
+                used_image_text = image_text
+                if image_text:
+                    vec = vectorizer.transform([image_text])
+                    proba = model.predict_proba(vec)[0]
+                    spam_conf = proba[1]
+                    image_label = 'spam' if spam_conf > 0.5 else 'ham'
+
+                    if spam_conf > 0.75:
+                        image_score = 1.5
+                    elif spam_conf > 0.5:
+                        image_score = 0.75
+            else:
+                image_label = 'error'
+
+        total_score = text_score + image_score
+        final_label = 'spam' if total_score >= 1.5 else 'ham'
+
         return jsonify({
-            "text_result": text_result,
-            "image_result": image_result,
-            "final_result": final_result
+            'final_label': final_label,
+            'total_score': round(total_score, 2),
+            'text': used_text,
+            'text_score': text_score,
+            'text_label': text_label,
+            'image_text': used_image_text,
+            'image_score': image_score,
+            'image_label': image_label
         })
-    except Exception as e:
-        print(f"❌ analyze-all 處理錯誤：{e}")
-        return jsonify({'error': str(e)}), 500
 
+    except Exception as e:
+        print(f"❌ analyze-all 錯誤：{e}")
+        return jsonify({'error': str(e)}), 500
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
