@@ -1,4 +1,6 @@
-flask
+Flask
 flask-cors
-scikit-learn
 joblib
+scikit-learn
+requests
+python-dotenv
