@@ -152,7 +152,14 @@ def analyze_all():
                     image_label = 'ocr_api_error' # OCR API 返回錯誤
 
         total_score = text_score + image_score
-        final_label = 'spam' if total_score >= 1.5 else 'ham'
+        if text_label and not image_label:
+            final_label = text_label
+        elif image_label and not text_label:
+            final_label = image_label
+        elif text_label or image_label:
+            final_label = 'spam' if total_score >= 1.5 else 'ham'
+        else:
+            final_label = 'unknown'  # 兩者都沒有
 
         return jsonify({
             'final_label': final_label,
