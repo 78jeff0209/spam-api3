@@ -39,42 +39,50 @@ def predict():
         return jsonify({'error': str(e)}), 500
 
 # 圖片 OCR + 預測 API（使用 OCR.space）
-@app.route('/predict-image', methods=['POST'])
-def predict_image():
+@app.route('/analyze-all', methods=['POST'])
+def analyze_all():
     try:
-        if 'image' not in request.files:
-            return jsonify({'error': '請上傳圖片'}), 400
+        # 收到圖片和文字
+        image_file = request.files.get('image', None)
+        text_input = request.form.get('text', '').strip()
 
-        image_file = request.files['image']
+        # 初始化文字容器
+        extracted_text = ''
 
-        ocr_response = requests.post(
-            'https://api.ocr.space/parse/image',
-            files={'filename': image_file},
-            data={
-                'apikey': OCR_API_KEY,
-                'language': 'cht'
-            }
-        )
+        # 有圖片就 OCR
+        if image_file:
+            ocr_response = requests.post(
+                'https://api.ocr.space/parse/image',
+                files={'filename': image_file},
+                data={
+                    'apikey': OCR_API_KEY,
+                    'language': 'cht'
+                }
+            )
+            result = ocr_response.json()
+            if not result.get('IsErroredOnProcessing'):
+                extracted_text = result['ParsedResults'][0].get('ParsedText', '')
+            else:
+                return jsonify({'error': 'OCR API 處理錯誤'}), 500
 
-        result = ocr_response.json()
-        if not result['IsErroredOnProcessing']:
-            text = result['ParsedResults'][0]['ParsedText']
-            if not text.strip():
-                return jsonify({'error': '圖片無法擷取到有效文字'}), 400
+        # 合併文字（圖片 + 手動輸入）
+        full_text = f"{extracted_text.strip()} {text_input}".strip()
+        if not full_text:
+            return jsonify({'error': '未提供有效文字'}), 400
 
-            vec = vectorizer.transform([text])
-            pred = model.predict(vec)[0]
-            return jsonify({
-                'label': 'spam' if pred == 1 else 'ham',
-                'text': text.strip()
-            })
-        else:
-            return jsonify
-            ({'error': 'OCR_API_ERROR','details': result.get('ErrorMessage', ['未知錯誤'])[0]
-             }), 500
+        # 模型預測
+        vec = vectorizer.transform([full_text])
+        pred = model.predict(vec)[0]
+        score = model.predict_proba(vec)[0][1]  # spam 的機率
+
+        return jsonify({
+            'final_label': 'spam' if pred == 1 else 'ham',
+            'text': full_text,
+            'total_score': round(score, 4)
+        })
 
     except Exception as e:
-        print(f"❌ 圖片處理錯誤：{e}")
+        print(f"❌ 分析時錯誤：{e}")
         return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
