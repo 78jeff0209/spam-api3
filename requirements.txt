@@ -4,3 +4,5 @@ joblib
 scikit-learn
 requests
 python-dotenv
+transformers
+torch

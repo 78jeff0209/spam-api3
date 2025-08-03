@@ -4,6 +4,7 @@ import joblib
 import requests
 import os
 from dotenv import load_dotenv
+from bert_predict import predict_bert
 
 # 載入 .env 變數
 load_dotenv()
@@ -88,9 +89,9 @@ def analyze_all():
         if not full_text:
             return jsonify({'error': '未提供有效文字'}), 400
 
-        vec = vectorizer.transform([full_text])
-        pred = model.predict(vec)[0]
-        score = model.predict_proba(vec)[0][1]
+        result = predict_bert(full_text)
+        pred = model.predict(result)[0]
+        score = model.predict_proba(result)[0][1]
 
         return jsonify({
             'final_label': 'spam' if pred == 1 else 'ham',
